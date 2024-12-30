@@ -23,7 +23,7 @@ const authSchema = new Schema({
         unique: true,
         lowercase: true,
     },
-    passsword: {
+    password: {
         type: String,
         required: true,
         maxLength: 256,
@@ -48,7 +48,10 @@ const authSchema = new Schema({
     },
     enquiredProperties: [{type: ObjectId, ref: 'Property'}],
     wishlist: [{type: ObjectId, ref: 'Property'}],
-    resetCode: "",
+    resetCode: {
+        type: String, // Corrected the type here
+        default: "",  // Optional: Specify a default value if needed
+    },
 },{timestamps: true});
 
 export default model('User',authSchema);

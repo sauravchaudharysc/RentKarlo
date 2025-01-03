@@ -238,3 +238,9 @@ const params = {
   // ... rest of the email configuration
 };
 ```
+
+# How to protect routes from not logged-in users ?
+Routes are protected using a middleware that validates user authentication. Tokens are passed in request headers and are verified to confirm if the user is logged in.
+
+Tokens are created using user_id. Middleware extracts and verifies the token from request headers. Extract User Information. Once verified, the middleware extracts relevant user information associated with the user_id.
+

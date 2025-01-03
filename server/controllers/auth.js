@@ -7,6 +7,20 @@ import { nanoid } from 'nanoid';
 import validator  from 'email-validator';
 import e from 'express';
 
+const userToken = (req,res,user,message) => {
+    const logintoken = jwt.sign({ _id: user._id }, config.JWT_SECRET, { expiresIn: '1h',});
+    const refreshToken = jwt.sign({ _id: user._id }, config.JWT_SECRET, { expiresIn: '7d',});
+    user.password = undefined;
+    user.resetCode = undefined;
+    
+    return res.json({
+        logintoken,
+        refreshToken,
+        user,
+        message
+    });
+};
+
 export const welcome = (req, res) => {
     res.json({
         message: 'Chalo Aab Sab Rent Karo'
@@ -58,7 +72,7 @@ export const preRegister = async (req, res) => {
         });
     }catch(err){
         console.log(err);
-        return res.json({error: "Something went wrong"});
+        return res.json({error: "Pre-Registration went wrong"});
     }
 };
 
@@ -66,31 +80,20 @@ export const register = async (req, res) => {
     try{
         const { token } = req.body;
         const { email, password } = jwt.verify(token, config.JWT_SECRET);
+        const userExist = await User.findOne({ email });
+        if(userExist){
+            return res.json({error: "Email is already registered"});
+        }
         const hashedPassword = await hashPassword(password);
         const user = await new User({
             email,
             password: hashedPassword,
             username: nanoid(6)
-        }).save();
-
-        const logintoken = jwt.sign({ _id: user._id }, config.JWT_SECRET, { expiresIn: '1h' });
-
-        const refreshToken = jwt.sign({ _id: user._id }, config.JWT_SECRET, { expiresIn: '7d' });
-        
-        console.log(email,password);
-        // Save this user to the database
-        return res.json({
-            logintoken,
-            refreshToken,
-            user: {
-                email,
-                username: user.username,
-                _id: user._id
-            },
-            message: "User Registered"});
+        }).save()
+        userToken(req,res,user,"Registration Success");
     }catch(err){
         console.log(err);
-        return res.json({error: "Something went wrong"});
+        return res.json({error: "Registration went wrong"});
     }
 };
 
@@ -108,22 +111,10 @@ export const login = async (req, res) => {
         if(!match){
             return res.json({error: "Invalid Credentials"});
         }
-
-        const logintoken = jwt.sign({ _id: user._id }, config.JWT_SECRET, { expiresIn: '1h',});
-        const refreshToken = jwt.sign({ _id: user._id }, config.JWT_SECRET, { expiresIn: '7d',});
-        return res.json({
-            logintoken,
-            refreshToken,
-            user: {
-                email,
-                username: user.username,
-                _id: user._id
-            },
-            message: "User Logged In"
-        });
+        userToken(req,res,user,"Login Success");
     }catch(err){    
         console.log(err);
-        return res.json({error: "Something went wrong"});
+        return res.json({error: "Login went wrong"});
     }
 };
 
@@ -163,7 +154,7 @@ export const forgotPassword = async (req, res) => {
         }
     }catch(err){    
         console.log(err);
-        return res.json({error: "Something went wrong"});
+        return res.json({error: "Forgot Password went wrong"});
     }
 };
 
@@ -175,19 +166,85 @@ export const resetPassword = async (req, res) => {
         if(!user){
             return res.json({error: "Invalid Token"});
         }
-        const logintoken = jwt.sign({ _id: user._id }, config.JWT_SECRET, { expiresIn: '1h',});
-        const refreshToken = jwt.sign({ _id: user._id }, config.JWT_SECRET, { expiresIn: '7d',});
-        return res.json({
-            logintoken,
-            refreshToken,
-            user: {
-                username: user.username,
-                _id: user._id
-            },
-            message: "User Logged In"
-        });
+        userToken(req,res,user,"Password Reset");
     }catch(err){
         console.log(err);
-        return res.json({error: "Something went wrong"});
+        return res.json({error: "Reset Password went wrong"});
     }
 };
+
+
+export const refreshToken = async (req, res) => {
+    try{
+        console.log(req.headers);
+        const { _id} = jwt.verify(req.headers.refreshtoken, config.JWT_SECRET);
+        const user = await User.findById(_id);
+        userToken(req,res,user,"Token Refreshed");
+    }catch(error){
+        console.log(error);
+        return res.status(401).json({message: "Refresh Token Generation Failed"});
+    }
+};
+
+export const currentUser = async (req, res) => {
+    try{
+        const user = await User.findById(req.user._id);
+        user.password = undefined;
+        user.resetCode = undefined;
+        return res.json(user);
+    }catch(error){
+        return res.status(401).json({message: "Authorization required"});
+    }
+};
+
+export const publicProfile = async (req, res) => {
+    try{
+        const user = await User.findOne({ username: req.params.username });
+        user.password = undefined;
+        user.resetCode = undefined;
+        return res.json(user);
+    }catch(error){
+        console.log(error);
+        return res.status(401).json({message: "Failed to fetch public profile"});
+    }
+};
+
+
+export const updatePassword = async (req, res) => {
+    try{
+        const { oldPassword, newPassword } = req.body;
+        const user = await User.findById(req.user._id);
+        const match = await comparePassword(oldPassword, user.password);
+        if(!match){
+            return res.json({error: "Invalid Password"});
+        }
+        if(newPassword.length < 6){
+            return res.json({error: "Password must be atleast 6 characters long"});
+        }
+        user.password = await hashPassword(newPassword);
+        user.save();
+        return res.json({message: "Password Updated"});
+    }catch(error){
+        console.log(error);
+        return res.status(401).json({message: "Failed to update password"});
+    }
+};
+
+export const updateProfile = async (req, res) => {
+    try {
+        const user = await User.findByIdAndUpdate(req.user._id, req.body, {
+            new: true,
+        });
+        user.password = undefined;
+        user.resetCode = undefined;
+        return res.json(user); // Added return here
+    } catch (error) {
+        console.log(error);
+        if (error.codeName === "DuplicateKey") {
+            return res.json({ error: "Username or email is already taken" }); // Return to ensure no further execution
+        } else {
+            return res.status(403).json({ error: "Unauthorized" }); // Return for consistency
+        }
+    }
+  };
+  
